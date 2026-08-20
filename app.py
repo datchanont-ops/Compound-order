@@ -5,18 +5,34 @@ import os
 from io import BytesIO
 import re
 
+# นำเข้าไลบรารีของ Supabase
+from supabase import create_client, Client
+
 st.set_page_config(page_title="ระบบสั่งยาง (Subcontractor)", layout="wide")
 st.title("📝 ระบบสั่งยาง (Order Form)")
 
 # -------------------------------------------------------------
-# 1. ดึงข้อมูล Master Data จากไฟล์ Excel
+# 1. เชื่อมต่อฐานข้อมูล Supabase
+# -------------------------------------------------------------
+@st.cache_resource
+def init_connection():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
+
+try:
+    supabase: Client = init_connection()
+except Exception as e:
+    st.error(f"ไม่สามารถเชื่อมต่อฐานข้อมูลได้ กรุณาตรวจสอบไฟล์ secrets.toml (Error: {e})")
+
+# -------------------------------------------------------------
+# 2. ดึงข้อมูล Master Data จากไฟล์ Excel
 # -------------------------------------------------------------
 @st.cache_data
 def load_data():
     file_path = "data base batch size.xlsx"
     if os.path.exists(file_path):
         df = pd.read_excel(file_path, sheet_name='batch size')
-        # [แก้ไข] เอา ffill ออก และสนใจแค่คอลัมน์ Compound SUB เป็นหลัก
         df = df.dropna(subset=['Compound SUB']) 
         return df
     else:
@@ -77,7 +93,6 @@ if selected_sub != "กรุณาเลือก...":
     # --- Tab 1: เพิ่มรายการด้วยตัวเอง ---
     with tab1:
         if not master_data.empty:
-            # [แก้ไข] ดึงสูตรยางทั้งหมดมาแสดง โดยไม่ต้องกรองตามชื่อ SUB
             filtered_compounds = master_data['Compound SUB'].tolist()
             filtered_compounds = sorted(list(set(filtered_compounds)))
         else:
@@ -174,7 +189,7 @@ if selected_sub != "กรุณาเลือก...":
                     st.success(f"นำเข้าข้อมูลจากไฟล์สำเร็จ จำนวน {len(df_formatted)} รายการ!")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"เกิดข้อผิดพลาดในการอ่านไฟล์ กรุณาใช้ไฟล์รูปแบบมาตรฐานเท่านั้น (Error: {e})")
+                    st.error(f"เกิดข้อผิดพลาดในการอ่านไฟล์ (Error: {e})")
 
     st.divider()
 
@@ -212,16 +227,41 @@ if selected_sub != "กรุณาเลือก...":
 
     st.divider()
     
+    # -------------------------------------------------------------
+    # 6. บันทึกข้อมูลลงฐานข้อมูล Supabase และ Export Excel
+    # -------------------------------------------------------------
     if st.button("🚀 ยืนยันการส่งใบสั่งยางไปยังโรงงาน", type="primary"):
         if not st.session_state.order_df.empty:
-            st.session_state.order_confirmed = True
-            st.success("✅ ระบบบันทึกข้อมูลเรียบร้อยแล้ว คุณสามารถดาวน์โหลดไฟล์ Excel ได้ด้านล่าง")
+            df_to_save = st.session_state.order_df.copy()
+            df_to_save = df_to_save.drop(columns=['เลือกเพื่อลบ'])
+            
+            # เตรียมแพ็กเกจข้อมูลส่งเข้า Database
+            records = []
+            for _, row in df_to_save.iterrows():
+                records.append({
+                    "customer": selected_sub,
+                    "plan_type": row['Plan type'],
+                    "recipe_name": row['Recipe name'],
+                    "quantity": float(row['Quantity']) if pd.notna(row['Quantity']) else 0,
+                    "rubber_type": row['ประเภทยาง'],
+                    "unit": row['Unit'],
+                    "delivery_date": str(row['Delivery Date']),
+                    "remark": str(row['Remark']) if pd.notna(row['Remark']) else "",
+                    "total_kg": float(row['Total Kg']) if pd.notna(row['Total Kg']) else 0
+                })
+            
+            try:
+                # ส่งข้อมูลเข้าตาราง rubber_orders ใน Supabase
+                supabase.table("rubber_orders").insert(records).execute()
+                
+                st.session_state.order_confirmed = True
+                st.success("✅ ระบบบันทึกข้อมูลเข้าสู่ฐานข้อมูลโรงงานเรียบร้อยแล้ว!")
+            except Exception as e:
+                st.error(f"❌ เกิดข้อผิดพลาดในการส่งข้อมูลไปโรงงาน: {e}")
         else:
             st.error("ไม่มีรายการสั่งยางในตาราง!")
 
-    # -------------------------------------------------------------
-    # 6. ฟังก์ชัน Export Excel
-    # -------------------------------------------------------------
+    # แสดงปุ่ม Export เสมอหลังกดยืนยันสำเร็จ
     if st.session_state.order_confirmed and not st.session_state.order_df.empty:
         df_export = st.session_state.order_df.copy()
         df_export = df_export.drop(columns=['เลือกเพื่อลบ'])
