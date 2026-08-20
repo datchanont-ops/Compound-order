@@ -16,8 +16,8 @@ def load_data():
     file_path = "data base batch size.xlsx"
     if os.path.exists(file_path):
         df = pd.read_excel(file_path, sheet_name='batch size')
-        df['SUB'] = df['SUB'].ffill() 
-        df = df.dropna(subset=['Compound SUB', 'SUB']) 
+        # [แก้ไข] เอา ffill ออก และสนใจแค่คอลัมน์ Compound SUB เป็นหลัก
+        df = df.dropna(subset=['Compound SUB']) 
         return df
     else:
         st.error(f"ไม่พบไฟล์ {file_path} ในระบบ")
@@ -77,7 +77,8 @@ if selected_sub != "กรุณาเลือก...":
     # --- Tab 1: เพิ่มรายการด้วยตัวเอง ---
     with tab1:
         if not master_data.empty:
-            filtered_compounds = master_data[master_data['SUB'] == selected_sub]['Compound SUB'].tolist()
+            # [แก้ไข] ดึงสูตรยางทั้งหมดมาแสดง โดยไม่ต้องกรองตามชื่อ SUB
+            filtered_compounds = master_data['Compound SUB'].tolist()
             filtered_compounds = sorted(list(set(filtered_compounds)))
         else:
             filtered_compounds = []
@@ -148,20 +149,17 @@ if selected_sub != "กรุณาเลือก...":
             uploaded_file = st.file_uploader("ลากไฟล์มาวาง หรือ กดเลือกไฟล์", type=["xlsx", "xls"])
             if uploaded_file and st.button("📥 นำเข้าข้อมูลเข้าสู่ตาราง"):
                 try:
-                    # อ่านไฟล์มาตรฐาน ข้าม 3 บรรทัดแรก
                     df_upload = pd.read_excel(uploaded_file, sheet_name='form', skiprows=3)
-                    # ตัดแถวแรกทิ้ง (เพราะเป็นหัวข้อภาษาไทย) และลบแถวที่ว่างออก
                     df_upload = df_upload.iloc[1:].dropna(subset=['Recipe name'])
                     
-                    # จัดเรียงข้อมูลให้ตรงกับโครงสร้างของระบบ
                     formatted_data = []
                     for _, row in df_upload.iterrows():
                         formatted_data.append({
                             "เลือกเพื่อลบ": False,
-                            "Plan type": "แผนปกติ", # ตั้งเป็นค่าเริ่มต้น
+                            "Plan type": "แผนปกติ", 
                             "Recipe name": row['Recipe name'],
                             "Quantity": row['Quantity'],
-                            "ประเภทยาง": row['Unnamed: 3'], # คอลัมน์ประเภทยางในไฟล์เดิม
+                            "ประเภทยาง": row['Unnamed: 3'], 
                             "Unit": row['Unit'],
                             "Delivery Date": pd.to_datetime(row['Delivery Date']).strftime("%d.%m.%Y") if pd.notna(row['Delivery Date']) else "",
                             "Remark": row['Unnamed: 7'] if pd.notna(row['Unnamed: 7']) else "",
@@ -186,13 +184,12 @@ if selected_sub != "กรุณาเลือก...":
     st.subheader("📋 สรุปรายการในใบสั่งยาง")
     
     if not st.session_state.order_df.empty:
-        # [แก้ไขที่ 1] ปรับกลับไปใช้ตารางที่ไม่สามารถแก้ไขข้อความได้โดยตรง แต่ยังติ๊กลบได้
         edited_df = st.data_editor(
             st.session_state.order_df,
             use_container_width=True,
-            num_rows="fixed", # ปิดการเพิ่มบรรทัดว่าง
+            num_rows="fixed", 
             hide_index=True,
-            disabled=["Plan type", "Recipe name", "Quantity", "ประเภทยาง", "Unit", "Delivery Date", "Remark", "Total Kg"], # ล็อกไม่ให้พิมพ์แก้
+            disabled=["Plan type", "Recipe name", "Quantity", "ประเภทยาง", "Unit", "Delivery Date", "Remark", "Total Kg"], 
             column_config={
                 "เลือกเพื่อลบ": st.column_config.CheckboxColumn("เลือก", default=False)
             }
