@@ -263,7 +263,7 @@ if selected_sub != "กรุณาเลือก...":
                 supabase.table("rubber_orders").insert(records).execute()
                 
                 # 2. ส่งข้อมูลเข้า Make.com Webhook
-                webhook_url = "https://hook.eu1.make.com/k7n36ym4uyvv4l2oaxymjatdjs6q1m8w"
+                webhook_url = "https://hook.eu1.make.com/h212l6phuqmm5lq3ylilch5vwri3updx"
                 
                 for record in records:
                     requests.post(webhook_url, json=record, timeout=5)
