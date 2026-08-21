@@ -4,8 +4,7 @@ from datetime import datetime
 import os
 from io import BytesIO
 import re
-
-# นำเข้าไลบรารีของ Supabase
+import requests
 from supabase import create_client, Client
 
 st.set_page_config(page_title="ระบบสั่งยาง (Subcontractor)", layout="wide")
@@ -228,14 +227,13 @@ if selected_sub != "กรุณาเลือก...":
     st.divider()
     
     # -------------------------------------------------------------
-    # 6. บันทึกข้อมูลลงฐานข้อมูล Supabase และ Export Excel
+    # 6. บันทึกข้อมูลลง Supabase และส่งต่อไปยัง Make.com (Google Sheets)
     # -------------------------------------------------------------
     if st.button("🚀 ยืนยันการส่งใบสั่งยางไปยังโรงงาน", type="primary"):
         if not st.session_state.order_df.empty:
             df_to_save = st.session_state.order_df.copy()
             df_to_save = df_to_save.drop(columns=['เลือกเพื่อลบ'])
             
-            # เตรียมแพ็กเกจข้อมูลส่งเข้า Database
             records = []
             for _, row in df_to_save.iterrows():
                 records.append({
@@ -251,17 +249,23 @@ if selected_sub != "กรุณาเลือก...":
                 })
             
             try:
-                # ส่งข้อมูลเข้าตาราง rubber_orders ใน Supabase
+                # 1. บันทึกลง Supabase
                 supabase.table("rubber_orders").insert(records).execute()
                 
+                # 2. ส่งข้อมูลเข้า Make.com Webhook
+                webhook_url = "https://hook.eu1.make.com/k7n36ym4uyvv4l2oaxymjatdjs6q1m8w"
+                
+                for record in records:
+                    requests.post(webhook_url, json=record, timeout=5)
+                
                 st.session_state.order_confirmed = True
-                st.success("✅ ระบบบันทึกข้อมูลเข้าสู่ฐานข้อมูลโรงงานเรียบร้อยแล้ว!")
+                st.success("✅ ระบบบันทึกข้อมูลและส่งเข้า Google Sheets เรียบร้อยแล้ว!")
             except Exception as e:
-                st.error(f"❌ เกิดข้อผิดพลาดในการส่งข้อมูลไปโรงงาน: {e}")
+                st.error(f"❌ เกิดข้อผิดพลาดในการบันทึกข้อมูล: {e}")
         else:
             st.error("ไม่มีรายการสั่งยางในตาราง!")
 
-    # แสดงปุ่ม Export เสมอหลังกดยืนยันสำเร็จ
+    # แสดงปุ่ม Export Excel
     if st.session_state.order_confirmed and not st.session_state.order_df.empty:
         df_export = st.session_state.order_df.copy()
         df_export = df_export.drop(columns=['เลือกเพื่อลบ'])
