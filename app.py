@@ -25,7 +25,7 @@ except Exception as e:
     st.error(f"ไม่สามารถเชื่อมต่อฐานข้อมูลได้ กรุณาตรวจสอบไฟล์ secrets.toml (Error: {e})")
 
 # -------------------------------------------------------------
-# 2. ดึงข้อมูล Master Data จากไฟล์ Excel
+# 2. ดึงข้อมูล Master Data
 # -------------------------------------------------------------
 @st.cache_data
 def load_data():
@@ -41,7 +41,8 @@ def load_data():
 master_data = load_data()
 sub_list_fixed = ["CRM", "KSA", "MCR", "PKPS", "PS", "SCC", "SCR", "TEP", "TPS", "TPT", "VK", "WCL01"]
 
-columns_schema = ["เลือกเพื่อลบ", "Plan type", "Recipe name", "Quantity", "ประเภทยาง", "Unit", "Delivery Date", "Remark", "Total Kg"]
+# เพิ่ม "Order No." เข้ามาในโครงสร้างตาราง
+columns_schema = ["เลือกเพื่อลบ", "Order No.", "Plan type", "Recipe name", "Quantity", "ประเภทยาง", "Unit", "Delivery Date", "Remark", "Total Kg"]
 
 if 'order_df' not in st.session_state:
     st.session_state.order_df = pd.DataFrame(columns=columns_schema)
@@ -85,7 +86,7 @@ st.divider()
 if selected_sub != "กรุณาเลือก...":
     
     # -------------------------------------------------------------
-    # 4. เมนูจัดการข้อมูล (เพิ่มมือ / อัปโหลด)
+    # 4. เมนูจัดการข้อมูล
     # -------------------------------------------------------------
     tab1, tab2 = st.tabs(["✍️ เพิ่มรายการด้วยตัวเอง", "📥 อัปโหลดไฟล์มาตรฐาน (ตัวอย่าง ใบสั่งยาง.xlsx)"])
     
@@ -130,7 +131,7 @@ if selected_sub != "กรุณาเลือก...":
                     st.error("กรุณาเลือกหรือพิมพ์ชื่อ Recipe name!")
                 else:
                     new_row = {
-                        "เลือกเพื่อลบ": False, "Plan type": plan_type, "Recipe name": recipe, 
+                        "เลือกเพื่อลบ": False, "Order No.": "", "Plan type": plan_type, "Recipe name": recipe, 
                         "Quantity": qty, "ประเภทยาง": rubber_type, "Unit": unit, 
                         "Delivery Date": delivery_date.strftime("%d.%m.%Y"), "Remark": remark, "Total Kg": 0.0
                     }
@@ -149,7 +150,7 @@ if selected_sub != "กรุณาเลือก...":
             template_path = "ตัวอย่าง ใบสั่งยาง.xlsx"
             if os.path.exists(template_path):
                 with open(template_path, "rb") as file:
-                    btn = st.download_button(
+                    st.download_button(
                         label="⬇️ ดาวน์โหลด 'ตัวอย่าง ใบสั่งยาง.xlsx'",
                         data=file,
                         file_name="แบบฟอร์มสั่งยาง_มาตรฐาน.xlsx",
@@ -170,6 +171,7 @@ if selected_sub != "กรุณาเลือก...":
                     for _, row in df_upload.iterrows():
                         formatted_data.append({
                             "เลือกเพื่อลบ": False,
+                            "Order No.": "",
                             "Plan type": "แผนปกติ", 
                             "Recipe name": row['Recipe name'],
                             "Quantity": row['Quantity'],
@@ -197,13 +199,17 @@ if selected_sub != "กรุณาเลือก...":
     # -------------------------------------------------------------
     st.subheader("📋 สรุปรายการในใบสั่งยาง")
     
+    # อัปเดตเลข Order No. แบบอัตโนมัติ (รันตามวันที่และลำดับ)
     if not st.session_state.order_df.empty:
+        date_str = order_date.strftime("%Y%m%d")
+        st.session_state.order_df['Order No.'] = [f"{selected_sub}{date_str}{i+1}" for i in range(len(st.session_state.order_df))]
+        
         edited_df = st.data_editor(
             st.session_state.order_df,
             use_container_width=True,
             num_rows="fixed", 
             hide_index=True,
-            disabled=["Plan type", "Recipe name", "Quantity", "ประเภทยาง", "Unit", "Delivery Date", "Remark", "Total Kg"], 
+            disabled=["Order No.", "Plan type", "Recipe name", "Quantity", "ประเภทยาง", "Unit", "Delivery Date", "Remark", "Total Kg"], 
             column_config={
                 "เลือกเพื่อลบ": st.column_config.CheckboxColumn("เลือก", default=False)
             }
@@ -214,8 +220,10 @@ if selected_sub != "กรุณาเลือก...":
         col_btn1, col_btn2 = st.columns([2, 8])
         with col_btn1:
             if st.button("❌ ลบรายการที่เลือก"):
-                remaining_rows = st.session_state.order_df[~st.session_state.order_df['เลือกเพื่อลบ']]
-                st.session_state.order_df = remaining_rows.reset_index(drop=True)
+                if 'เลือกเพื่อลบ' in st.session_state.order_df.columns:
+                    mask = st.session_state.order_df['เลือกเพื่อลบ'].fillna(False).astype(bool)
+                    remaining_rows = st.session_state.order_df[~mask]
+                    st.session_state.order_df = remaining_rows.reset_index(drop=True)
                 st.rerun()
         with col_btn2:
             if st.button("🗑️ ล้างรายการทั้งหมด"):
@@ -232,11 +240,13 @@ if selected_sub != "กรุณาเลือก...":
     if st.button("🚀 ยืนยันการส่งใบสั่งยางไปยังโรงงาน", type="primary"):
         if not st.session_state.order_df.empty:
             df_to_save = st.session_state.order_df.copy()
-            df_to_save = df_to_save.drop(columns=['เลือกเพื่อลบ'])
+            if 'เลือกเพื่อลบ' in df_to_save.columns:
+                df_to_save = df_to_save.drop(columns=['เลือกเพื่อลบ'])
             
             records = []
             for _, row in df_to_save.iterrows():
                 records.append({
+                    "order_no": row['Order No.'],  # <-- เพิ่มการส่ง Order No
                     "customer": selected_sub,
                     "plan_type": row['Plan type'],
                     "recipe_name": row['Recipe name'],
@@ -268,9 +278,11 @@ if selected_sub != "กรุณาเลือก...":
     # แสดงปุ่ม Export Excel
     if st.session_state.order_confirmed and not st.session_state.order_df.empty:
         df_export = st.session_state.order_df.copy()
-        df_export = df_export.drop(columns=['เลือกเพื่อลบ'])
+        if 'เลือกเพื่อลบ' in df_export.columns:
+            df_export = df_export.drop(columns=['เลือกเพื่อลบ'])
+            
+        # ลบการเพิ่มคอลัมน์ No. ออกไปเลย เพราะเรามี Order No. ที่ชัดเจนกว่าแล้ว
         df_export.insert(0, 'Customer', selected_sub) 
-        df_export.insert(0, 'No.', range(1, len(df_export) + 1))
         
         output = BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
