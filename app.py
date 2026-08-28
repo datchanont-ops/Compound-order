@@ -142,7 +142,7 @@ if selected_sub != "กรุณาเลือก...":
                     st.session_state.order_confirmed = False
                     st.rerun()
 
-    # --- Tab 2: อัปโหลด Template มาตรฐาน ---
+    # --- Tab 2: อัปโหลด Template มาตรฐาน (ฉลาดขึ้น ดึงข้อมูลอัตโนมัติ) ---
     with tab2:
         col_down, col_up = st.columns([1, 1])
         with col_down:
@@ -164,21 +164,41 @@ if selected_sub != "กรุณาเลือก...":
             uploaded_file = st.file_uploader("ลากไฟล์มาวาง หรือ กดเลือกไฟล์", type=["xlsx", "xls"])
             if uploaded_file and st.button("📥 นำเข้าข้อมูลเข้าสู่ตาราง"):
                 try:
-                    df_upload = pd.read_excel(uploaded_file, sheet_name='form', skiprows=3)
-                    df_upload = df_upload.iloc[1:].dropna(subset=['Recipe name'])
+                    # พยายามอ่าน sheet 'form' ก่อน ถ้าไม่มีให้อ่าน sheet แรกอัตโนมัติ
+                    try:
+                        df_temp = pd.read_excel(uploaded_file, sheet_name='form', header=None)
+                        sheet_to_read = 'form'
+                    except:
+                        df_temp = pd.read_excel(uploaded_file, header=None)
+                        sheet_to_read = 0
+
+                    # 1. ค้นหาบรรทัดที่เป็น Header อัตโนมัติ (หาคำว่า Recipe name)
+                    header_idx = 0
+                    for i, row in df_temp.iterrows():
+                        if row.astype(str).str.contains('Recipe name', case=False, na=False).any():
+                            header_idx = i
+                            break
+                    
+                    # 2. อ่านไฟล์อีกครั้งโดยล็อคบรรทัด Header ที่เราหาเจอ
+                    df_upload = pd.read_excel(uploaded_file, sheet_name=sheet_to_read, header=header_idx)
+                    
+                    # 3. ลบแถวที่ไม่ได้ระบุชื่อสูตรยางทิ้ง
+                    df_upload = df_upload.dropna(subset=['Recipe name'])
                     
                     formatted_data = []
                     for _, row in df_upload.iterrows():
+                        # ใช้ .get() เพื่อป้องกัน Error หากหาคอลัมน์ไม่เจอ
+                        delivery_val = row.get('Delivery Date')
                         formatted_data.append({
                             "เลือกเพื่อลบ": False,
                             "Order No.": "",
                             "Plan type": "แผนปกติ", 
-                            "Recipe name": row['Recipe name'],
-                            "Quantity": row['Quantity'],
-                            "ประเภทยาง": row['Unnamed: 3'], 
-                            "Unit": row['Unit'],
-                            "Delivery Date": pd.to_datetime(row['Delivery Date']).strftime("%d.%m.%Y") if pd.notna(row['Delivery Date']) else "",
-                            "Remark": row['Unnamed: 7'] if pd.notna(row['Unnamed: 7']) else "",
+                            "Recipe name": row.get('Recipe name'),
+                            "Quantity": row.get('Quantity', 0),
+                            "ประเภทยาง": row.get('ประเภทยาง', row.get('Unnamed: 3', 'ยางแผ่น')), # เผื่อกรณีใช้ชื่อหัวตารางเดิม
+                            "Unit": row.get('Unit', 'Kg'),
+                            "Delivery Date": pd.to_datetime(delivery_val).strftime("%d.%m.%Y") if pd.notna(delivery_val) else "",
+                            "Remark": row.get('Remark', row.get('Unnamed: 7', '')) if pd.notna(row.get('Remark')) or pd.notna(row.get('Unnamed: 7')) else "",
                             "Total Kg": 0.0
                         })
                         
@@ -246,7 +266,7 @@ if selected_sub != "กรุณาเลือก...":
             records = []
             for _, row in df_to_save.iterrows():
                 records.append({
-                    "order_no": row['Order No.'],  # <-- เพิ่มการส่ง Order No
+                    "order_no": row['Order No.'],  
                     "customer": selected_sub,
                     "plan_type": row['Plan type'],
                     "recipe_name": row['Recipe name'],
@@ -281,7 +301,6 @@ if selected_sub != "กรุณาเลือก...":
         if 'เลือกเพื่อลบ' in df_export.columns:
             df_export = df_export.drop(columns=['เลือกเพื่อลบ'])
             
-        # ลบการเพิ่มคอลัมน์ No. ออกไปเลย เพราะเรามี Order No. ที่ชัดเจนกว่าแล้ว
         df_export.insert(0, 'Customer', selected_sub) 
         
         output = BytesIO()
