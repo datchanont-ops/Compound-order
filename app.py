@@ -182,22 +182,29 @@ if selected_sub != "กรุณาเลือก...":
                     # 2. อ่านไฟล์อีกครั้งโดยล็อคบรรทัด Header ที่เราหาเจอ
                     df_upload = pd.read_excel(uploaded_file, sheet_name=sheet_to_read, header=header_idx)
                     
-                    # 3. ลบแถวที่ไม่ได้ระบุชื่อสูตรยางทิ้ง
+                    # 3. ลบแถวที่ว่างตรงช่อง Recipe name ทิ้ง
                     df_upload = df_upload.dropna(subset=['Recipe name'])
                     
                     formatted_data = []
                     for _, row in df_upload.iterrows():
-                        # ใช้ .get() เพื่อป้องกัน Error หากหาคอลัมน์ไม่เจอ
+                        # ดักจับบรรทัดขยะ: ถ้าช่องชื่อยาง มีคำที่เป็นหัวตารางภาษาไทย ให้ข้ามบรรทัดนี้ไปเลย
+                        recipe_str = str(row.get('Recipe name')).strip()
+                        if recipe_str in ['ชื่อยาง', 'Recipe name', 'ชื่อสูตรยาง', 'Recipe']:
+                            continue
+                            
+                        # แปลงวันที่แบบปลอดภัย (ถ้าไม่ใช่รูปแบบวันที่ จะกลายเป็น NaT ไม่พัง)
                         delivery_val = row.get('Delivery Date')
+                        parsed_date = pd.to_datetime(delivery_val, errors='coerce')
+
                         formatted_data.append({
                             "เลือกเพื่อลบ": False,
                             "Order No.": "",
                             "Plan type": "แผนปกติ", 
                             "Recipe name": row.get('Recipe name'),
                             "Quantity": row.get('Quantity', 0),
-                            "ประเภทยาง": row.get('ประเภทยาง', row.get('Unnamed: 3', 'ยางแผ่น')), # เผื่อกรณีใช้ชื่อหัวตารางเดิม
+                            "ประเภทยาง": row.get('ประเภทยาง', row.get('Unnamed: 3', 'ยางแผ่น')), 
                             "Unit": row.get('Unit', 'Kg'),
-                            "Delivery Date": pd.to_datetime(delivery_val).strftime("%d.%m.%Y") if pd.notna(delivery_val) else "",
+                            "Delivery Date": parsed_date.strftime("%d.%m.%Y") if pd.notna(parsed_date) else "",
                             "Remark": row.get('Remark', row.get('Unnamed: 7', '')) if pd.notna(row.get('Remark')) or pd.notna(row.get('Unnamed: 7')) else "",
                             "Total Kg": 0.0
                         })
